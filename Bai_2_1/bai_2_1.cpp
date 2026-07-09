@@ -13,12 +13,14 @@
 #define MAX_PATH_LEN 1024
 #define MAX_KEYWORD_LEN 260
 
+// biến thành chữ thường
 void ToLowerString(wchar_t* s) {
     for (int i = 0; s[i] != L'\0'; i++) {
         s[i] = (wchar_t)towlower(s[i]);
     }
 }
 
+// kiem tra xem chuoi text co chua keyword khong
 int ContainsIgnoreCase(const wchar_t* text, const wchar_t* keyword) {
     if (keyword == NULL || keyword[0] == L'\0') {
         return 1;
@@ -36,6 +38,7 @@ int ContainsIgnoreCase(const wchar_t* text, const wchar_t* keyword) {
     return wcsstr(textCopy, keywordCopy) != NULL;
 }
 
+// lay duong dan day du cua process + dung luong RAM dang su dung
 void GetProcessPathAndMemory(DWORD pid, wchar_t* path, DWORD pathSize, SIZE_T* memoryBytes) {
     wcscpy_s(path, pathSize, L"Unknown");
     *memoryBytes = 0;
@@ -65,6 +68,7 @@ void GetProcessPathAndMemory(DWORD pid, wchar_t* path, DWORD pathSize, SIZE_T* m
     CloseHandle(hProcess);
 }
 
+// in thong tin cua 1 process ra man hinh
 void PrintProcessInfo(PROCESSENTRY32W* pe) {
     wchar_t path[MAX_PATH_LEN];
     SIZE_T memoryBytes = 0;
@@ -87,6 +91,36 @@ void PrintProcessInfo(PROCESSENTRY32W* pe) {
     );
 }
 
+// luong thuc hien 1. liet ke process
+/*
+Luồng list process:
+
+1. Chụp lại danh sách process đang chạy hiện tại
+   → CreateToolhelp32Snapshot
+
+2. Kiểm tra snapshot có hợp lệ không
+   → hSnapshot != INVALID_HANDLE_VALUE
+
+3. Khai báo PROCESSENTRY32W
+   → biến này dùng để chứa thông tin của từng process
+
+4. Gán pe.dwSize
+   → báo cho Windows biết kích thước struct
+
+5. Lấy process đầu tiên
+   → Process32FirstW
+   → Windows điền thông tin process đầu tiên vào pe
+
+6. Dùng Process32NextW để lấy các process tiếp theo
+   → mỗi lần gọi, Windows lại ghi đè thông tin process mới vào pe
+
+7. Với mỗi process:
+   → lấy PID từ pe.th32ProcessID
+   → lấy tên từ pe.szExeFile
+   → nếu cần path/RAM thì OpenProcess để lấy thêm
+
+8. Khi duyệt xong thì đóng snapshot handle
+*/
 void ListProcesses(const wchar_t* filterName) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(
         TH32CS_SNAPPROCESS,
@@ -126,6 +160,14 @@ void ListProcesses(const wchar_t* filterName) {
     CloseHandle(hSnapshot);
 }
 
+// luong thuc hien 3. kill process
+/*
+1. Người dùng nhập PID
+2. chương trình kiểm tra PID đặc biệt
+3. sau đó dùng OpenProcess(PROCESS_TERMINATE, FALSE, pid). 
+4. Nếu mở thành công thì gọi TerminateProcess 
+5. CloseHandle.
+*/
 void KillProcessByPID(DWORD pid) {
     if (pid == 0 || pid == 4) {
         wprintf(L"Do not kill System Idle Process or System process.\n");
@@ -217,3 +259,36 @@ int wmain() {
 
     return 0;
 }
+/*
+1. CreateToolhelp32Snapshot
+
+Tạo snapshot danh sách process/thread/module/heap tại thời điểm gọi hàm.
+
+2. Process32FirstW
+
+Lấy process đầu tiên trong snapshot.
+
+3. Process32NextW
+
+Lấy process tiếp theo trong snapshot.
+
+4. OpenProcess
+
+Dùng PID để xin handle tới một process với quyền truy cập cụ thể.
+
+5. QueryFullProcessImageNameW
+
+Lấy đường dẫn đầy đủ file image .exe của process.
+
+6. GetProcessMemoryInfo
+
+Lấy thông tin bộ nhớ của process.
+
+7. TerminateProcess
+
+Kết thúc cưỡng bức một process.
+
+8. CloseHandle
+
+Đóng handle để giải phóng tài nguyên hệ thống.
+*/
