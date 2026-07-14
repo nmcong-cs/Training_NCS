@@ -47,7 +47,9 @@ static void WriteLog(const char* msg)
 int wmain(int argc, wchar_t* argv[])
 {
     STARTUPINFOW        si; // cau hinh cach process con khoi dong
-    PROCESS_INFORMATION pi; // ghi thong tin process con
+    PROCESS_INFORMATION pi; 
+    // ghi thong tin process con (parent dua dia chi cua no vao CreateProcessW)
+    // sau khi tao Child thanh cong, Windows ghi ket qua vao day
     SECURITY_ATTRIBUTES saAttr;
 	HANDLE hReadPipe = NULL, hWritePipe = NULL; // process cha read, process con write
     wchar_t cmdLine[1024]; // cmd line truyen cho con
