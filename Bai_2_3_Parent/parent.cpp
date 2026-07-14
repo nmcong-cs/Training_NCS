@@ -32,7 +32,7 @@ static void WriteLog(const char* msg)
     printf("[%02d:%02d:%02d.%03d] %s\n",
         st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
 
-    fopen_s(&f, "log.txt", "a");
+    fopen_s(&f, "log.txt", "a"); //append - chua co thi tao, co roi thi ghi them
 
     if (f)
     {
@@ -46,12 +46,12 @@ static void WriteLog(const char* msg)
 
 int wmain(int argc, wchar_t* argv[])
 {
-    STARTUPINFOW        si;
-    PROCESS_INFORMATION pi;
+    STARTUPINFOW        si; // cau hinh cach process con khoi dong
+    PROCESS_INFORMATION pi; // ghi thong tin process con
     SECURITY_ATTRIBUTES saAttr;
-    HANDLE hReadPipe = NULL, hWritePipe = NULL;
-    wchar_t cmdLine[1024];
-    wchar_t childExe[512] = L"Bai_2_3_Child.exe";
+	HANDLE hReadPipe = NULL, hWritePipe = NULL; // process cha read, process con write
+    wchar_t cmdLine[1024]; // cmd line truyen cho con
+    wchar_t childExe[512] = L"Bai_2_3_Child.exe"; // ten chuong trinh con
     char logBuf[512];
     char outputBuf[4096];
     DWORD bytesRead;
@@ -74,6 +74,7 @@ int wmain(int argc, wchar_t* argv[])
 
     /* CreateProcessW yêu cầu command line dạng buffer có thể ghi
        (không được truyền literal string const trực tiếp) */
+	// xay dung command line : "Bai_2_3_Child.exe arg[1] arg[2] ..."
     wcscpy_s(
         cmdLine,
         _countof(cmdLine),
@@ -133,9 +134,12 @@ int wmain(int argc, wchar_t* argv[])
      * 3. Chuẩn bị STARTUPINFO: gán STDOUT (và STDERR) của con
      *    trỏ tới đầu ghi của pipe.
      * -------------------------------------------------------- */
-    ZeroMemory(&si, sizeof(si));
+	ZeroMemory(&si, sizeof(si)); // xoa du lieu trong struct STARTUPINFO
     si.cb = sizeof(si);
     si.dwFlags |= STARTF_USESTDHANDLES;
+    /*
+	3 dong duoi day noi voi Windows rang process con phai su dung cac handle de redirect STDOUT/STDERR/STDIN
+    */
     si.hStdOutput = hWritePipe;
     si.hStdError = hWritePipe;
     si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
