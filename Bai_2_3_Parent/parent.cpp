@@ -1,6 +1,7 @@
 /*
  * parent.c
  * ------------------------------------------------------------
+ * 
  * Chương trình CHA (parent process).
  * Nhiệm vụ:
  *   1. Tạo process con bằng CreateProcessW.
@@ -12,14 +13,6 @@
  *   6. Ghi log (thời gian bắt đầu/kết thúc, thời lượng chạy,
  *      command line, exit code) ra console và ra file log.txt.
  *
- * Biên dịch (MinGW):
- *   gcc -o parent.exe parent.c -municode
- * Biên dịch (MSVC - Developer Command Prompt):
- *   cl parent.c
- *
- * Chạy:
- *   parent.exe child.exe 99
- *   (child.exe la ten process con, 99 la tham so truyen vao con)
  * ------------------------------------------------------------
  */
 
