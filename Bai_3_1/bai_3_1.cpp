@@ -1,292 +1,438 @@
 /*
- * regtool.c - Registry Editor CLI
- * ---------------------------------------------------------
- * Bai tap 3.1: Cong cu them / sua / xoa key (value) trong Windows Registry
- * Su dung Windows API: RegOpenKeyEx, RegSetValueEx, RegDeleteValue
+ * ============================================================================
+ *  RegistryEditorCLI.c
+ *  Bai tap 3.1 - Registry Editor CLI
  *
- * Bien dich (Windows, MinGW):
- *      gcc regtool.c -o regtool.exe -ladvapi32
- * Bien dich (Windows, MSVC - Developer Command Prompt):
- *      cl regtool.c advapi32.lib
+ *  Chuc nang:
+ *      - Them (Add)   Registry Value kieu REG_SZ
+ *      - Sua  (Edit)  Registry Value kieu REG_SZ
+ *      - Xoa  (Delete) Registry Value
  *
- * Cach dung:
- *   regtool.exe add    <HIVE> <SubKey> <ValueName> <Type> <Data>
- *   regtool.exe edit   <HIVE> <SubKey> <ValueName> <Type> <Data>
- *   regtool.exe delete <HIVE> <SubKey> <ValueName>
- *   regtool.exe list   <HIVE> <SubKey>
+ *  API su dung:
+ *      RegOpenKeyExW, RegSetValueExW, RegDeleteValueW, RegCloseKey
  *
- *   HIVE  : HKCU | HKLM | HKCR | HKU | HKCC
- *   Type  : REG_SZ | REG_DWORD | REG_EXPAND_SZ | REG_BINARY
+ *  Bien dich (Visual Studio x64 - Developer Command Prompt):
+ *      cl /W4 /utf-8 RegistryEditorCLI.c Advapi32.lib
  *
- * Vi du:
- *   regtool.exe add HKCU "Software\MyApp" Version REG_SZ "1.0.0"
- *   regtool.exe edit HKCU "Software\MyApp" Version REG_SZ "1.1.0"
- *   regtool.exe delete HKCU "Software\MyApp" Version
- *   regtool.exe list HKCU "Software\MyApp"
- * ---------------------------------------------------------
+ *  Hoac dung CMakeLists / MSBuild, chi can link Advapi32.lib
+ *  (thu vien nay thuong duoc link mac dinh trong VS, nhung khai bao
+ *   tuong minh bang #pragma comment de chac chan bien dich duoc).
+ * ============================================================================
  */
+
+ /* Chi define UNICODE/_UNICODE neu project (VS) CHUA tu dinh nghia san.
+  * Ly do: khi project duoc set "Character Set = Unicode" trong
+  * Project Properties, Visual Studio da tu dong truyen
+  * /D UNICODE /D _UNICODE qua command line bien dich. Neu code
+  * #define lai lan nua se sinh canh bao C4005 (macro redefinition). */
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
 
 #include <windows.h>
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include <wchar.h>
+#include <locale.h>   /* Can cho macro LC_ALL dung trong _wsetlocale */
 
- /* ---------- Ham tien ich: chuyen chuoi HIVE -> HKEY ---------- */
-static BOOL ParseHive(const char* s, HKEY* outHive)
+#pragma comment(lib, "Advapi32.lib")
+
+  /* ----------------------------------------------------------------------
+   *  Ham phu tro: chuyen chuoi Hive nguoi dung nhap (vd "HKCU", "HKLM")
+   *  thanh gia tri HKEY tuong ung.
+   *  Tra ve TRUE neu hop le, FALSE neu khong nhan dien duoc.
+   * ---------------------------------------------------------------------- */
+static BOOL ResolveHive(const wchar_t* hiveText, HKEY* outHive)
 {
-    if (_stricmp(s, "HKCU") == 0 || _stricmp(s, "HKEY_CURRENT_USER") == 0) {
+    if (_wcsicmp(hiveText, L"HKCU") == 0 || _wcsicmp(hiveText, L"HKEY_CURRENT_USER") == 0)
+    {
         *outHive = HKEY_CURRENT_USER;
+        return TRUE;
     }
-    else if (_stricmp(s, "HKLM") == 0 || _stricmp(s, "HKEY_LOCAL_MACHINE") == 0) {
+    if (_wcsicmp(hiveText, L"HKLM") == 0 || _wcsicmp(hiveText, L"HKEY_LOCAL_MACHINE") == 0)
+    {
         *outHive = HKEY_LOCAL_MACHINE;
+        return TRUE;
     }
-    else if (_stricmp(s, "HKCR") == 0 || _stricmp(s, "HKEY_CLASSES_ROOT") == 0) {
+    if (_wcsicmp(hiveText, L"HKCR") == 0 || _wcsicmp(hiveText, L"HKEY_CLASSES_ROOT") == 0)
+    {
         *outHive = HKEY_CLASSES_ROOT;
+        return TRUE;
     }
-    else if (_stricmp(s, "HKU") == 0 || _stricmp(s, "HKEY_USERS") == 0) {
+    if (_wcsicmp(hiveText, L"HKU") == 0 || _wcsicmp(hiveText, L"HKEY_USERS") == 0)
+    {
         *outHive = HKEY_USERS;
+        return TRUE;
     }
-    else if (_stricmp(s, "HKCC") == 0 || _stricmp(s, "HKEY_CURRENT_CONFIG") == 0) {
+    if (_wcsicmp(hiveText, L"HKCC") == 0 || _wcsicmp(hiveText, L"HKEY_CURRENT_CONFIG") == 0)
+    {
         *outHive = HKEY_CURRENT_CONFIG;
+        return TRUE;
     }
-    else {
-        return FALSE;
-    }
-    return TRUE;
-}
-
-/* ---------- Ham tien ich: chuoi kieu du lieu -> REG_* ---------- */
-static BOOL ParseType(const char* s, DWORD* outType)
-{
-    if (_stricmp(s, "REG_SZ") == 0) { *outType = REG_SZ; return TRUE; }
-    if (_stricmp(s, "REG_EXPAND_SZ") == 0) { *outType = REG_EXPAND_SZ; return TRUE; }
-    if (_stricmp(s, "REG_DWORD") == 0) { *outType = REG_DWORD; return TRUE; }
-    if (_stricmp(s, "REG_BINARY") == 0) { *outType = REG_BINARY; return TRUE; }
     return FALSE;
 }
 
-static void PrintErr(const char* action, LONG code)
+/* ----------------------------------------------------------------------
+ *  Ham phu tro: in thong bao loi kem ma loi he thong (GetLastError)
+ *  duoi dang chuoi mo ta (FormatMessage) de de doc.
+ * ---------------------------------------------------------------------- */
+static void PrintWinError(const wchar_t* context, LONG errorCode)
 {
-    char* msg = NULL;
-    FormatMessageA(
+    wchar_t* msgBuffer = NULL;
+    DWORD charsWritten;
+
+    charsWritten = FormatMessageW(
         FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL, (DWORD)code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPSTR)&msg, 0, NULL);
-    fprintf(stderr, "[LOI] %s that bai (ma loi %ld): %s\n",
-        action, code, msg ? msg : "Khong ro nguyen nhan");
-    if (msg) LocalFree(msg);
+        NULL,
+        (DWORD)errorCode,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPWSTR)&msgBuffer,
+        0,
+        NULL);
+
+    /* Kiem tra CA gia tri tra ve (so ky tu ghi duoc) LAN con tro khac NULL.
+     * FormatMessageW co the tra ve 0 (that bai) ma khong dam bao msgBuffer
+     * duoc gan gia tri hop le -> phai kiem tra ca hai de tranh
+     * dereference con tro khong xac dinh (canh bao /analyze C6011). */
+    if (charsWritten > 0 && msgBuffer != NULL)
+    {
+        /* FormatMessage thuong tra ve chuoi co \r\n o cuoi, ta khong can xu ly them */
+        wprintf(L"[LOI] %ls -> Ma loi: %ld - %ls", context, errorCode, msgBuffer);
+        LocalFree(msgBuffer);
+    }
+    else
+    {
+        if (msgBuffer != NULL)
+        {
+            LocalFree(msgBuffer);
+        }
+        wprintf(L"[LOI] %ls -> Ma loi: %ld (khong lay duoc mo ta chi tiet)\n", context, errorCode);
+    }
 }
 
-/* ---------- ADD / EDIT: RegOpenKeyEx (tao neu chua co) + RegSetValueEx ---------- */
-static int CmdSetValue(const char* action, HKEY hive, const char* subKey,
-    const char* valueName, const char* typeStr, const char* data)
+/* ----------------------------------------------------------------------
+ *  AddRegistryValue
+ *  Luong:
+ *      1. RegOpenKeyExW mo subkey voi quyen KEY_SET_VALUE.
+ *      2. Neu mo thanh cong -> RegSetValueExW de tao/ghi value moi (REG_SZ).
+ *      3. In ket qua thanh cong hoac loi.
+ *      4. RegCloseKey de dong handle.
+ *
+ *  Luu y: RegSetValueEx tren mot key da mo se TU DONG TAO value neu
+ *  value do chua ton tai -> khong can goi rieng ham "Create value".
+ *  Chi dung RegCreateKeyEx khi can tao MOI ban than subkey (khong yeu
+ *  cau trong bai nay nen khong su dung).
+ * ---------------------------------------------------------------------- */
+static void AddRegistryValue(HKEY hive, const wchar_t* subKey,
+    const wchar_t* valueName, const wchar_t* valueData)
 {
-    DWORD type;
-    if (!ParseType(typeStr, &type)) {
-        fprintf(stderr, "[LOI] Kieu du lieu khong hop le: %s\n", typeStr);
-        fprintf(stderr, "      Ho tro: REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_BINARY\n");
-        return 1;
+    HKEY hKey = NULL;
+    LONG result;
+
+    /* Buoc 1: Mo Registry Key voi quyen ghi gia tri (KEY_SET_VALUE) */
+    result = RegOpenKeyExW(
+        hive,               /* HKEY goc: HKCU, HKLM, ... */
+        subKey,             /* Duong dan subkey */
+        0,                  /* Tuy chon mac dinh */
+        KEY_SET_VALUE,      /* Quyen truy cap: cho phep RegSetValueEx */
+        &hKey);             /* Handle ket qua */
+
+    if (result != ERROR_SUCCESS)
+    {
+        PrintWinError(L"Khong mo duoc Registry Key (Add)", result);
+        return;
     }
 
-    HKEY hKey;
-    DWORD disposition;
-    /* RegCreateKeyEx: mo key, neu chua ton tai thi tao moi (bao ham RegOpenKeyEx) */
-    LONG rc = RegCreateKeyExA(
-        hive, subKey, 0, NULL, REG_OPTION_NON_VOLATILE,
-        KEY_SET_VALUE | KEY_QUERY_VALUE, NULL, &hKey, &disposition);
+    /* Buoc 2: Ghi/Tao value moi dang REG_SZ */
+    /* cbData phai tinh ca ky tu NULL ket thuc chuoi, don vi la byte */
+    DWORD dataSize = (DWORD)((wcslen(valueData) + 1) * sizeof(wchar_t));
 
-    if (rc != ERROR_SUCCESS) {
-        PrintErr("Mo/tao key", rc);
-        return 1;
+    result = RegSetValueExW(
+        hKey,                       /* Handle key da mo */
+        valueName,                  /* Ten value */
+        0,                          /* Reserved, phai la 0 */
+        REG_SZ,                     /* Kieu du lieu: chuoi ket thuc bang NULL */
+        (const BYTE*)valueData,     /* Du lieu (ep kieu ve BYTE*) */
+        dataSize);                  /* Kich thuoc du lieu (byte) */
+
+    /* Buoc 3: In ket qua */
+    if (result == ERROR_SUCCESS)
+    {
+        wprintf(L"[OK] Da them Value \"%ls\" = \"%ls\" thanh cong.\n", valueName, valueData);
+    }
+    else
+    {
+        PrintWinError(L"Them Value that bai", result);
     }
 
-    BYTE* pData = NULL;
-    DWORD cbData = 0;
-    DWORD dwordVal = 0;
-
-    switch (type) {
-    case REG_SZ:
-    case REG_EXPAND_SZ:
-        pData = (BYTE*)data;
-        cbData = (DWORD)(strlen(data) + 1); /* bao gom ky tu null */
-        break;
-    case REG_DWORD:
-        dwordVal = (DWORD)strtoul(data, NULL, 0); /* ho tro ca so thap phan/hex (0x..) */
-        pData = (BYTE*)&dwordVal;
-        cbData = sizeof(DWORD);
-        break;
-    case REG_BINARY: {
-        /* Du lieu nhap dang chuoi hex, vd: "DEADBEEF" */
-        size_t len = strlen(data);
-        if (len % 2 != 0) {
-            fprintf(stderr, "[LOI] Chuoi hex cho REG_BINARY phai co so ky tu chan\n");
-            RegCloseKey(hKey);
-            return 1;
-        }
-        cbData = (DWORD)(len / 2);
-        pData = (BYTE*)malloc(cbData);
-        for (DWORD i = 0; i < cbData; i++) {
-            char byteStr[3] = { data[i * 2], data[i * 2 + 1], 0 };
-            pData[i] = (BYTE)strtoul(byteStr, NULL, 16);
-        }
-        break;
-    }
-    }
-
-    rc = RegSetValueExA(hKey, valueName, 0, type, pData, cbData);
-
-    if (type == REG_BINARY && pData) free(pData);
+    /* Buoc 4: Dong handle */
     RegCloseKey(hKey);
-
-    if (rc != ERROR_SUCCESS) {
-        PrintErr(action, rc);
-        return 1;
-    }
-
-    printf("[OK] Da %s gia tri \"%s\" = %s (%s) trong key \"%s\"\n",
-        (_stricmp(action, "them") == 0) ? "them" : "sua", valueName, data, typeStr, subKey);
-    return 0;
 }
 
-/* ---------- DELETE: RegOpenKeyEx + RegDeleteValue ---------- */
-static int CmdDeleteValue(HKEY hive, const char* subKey, const char* valueName)
+/* ----------------------------------------------------------------------
+ *  EditRegistryValue
+ *  Ve ban chat ky thuat, RegSetValueExW dung chung cho ca "them moi"
+ *  va "cap nhat" (neu value da ton tai thi du lieu se bi ghi de).
+ *  Tach thanh ham rieng theo dung yeu cau de:
+ *      - Kiem tra value co ton tai truoc khi sua (RegQueryValueExW)
+ *        nham tranh vo tinh tao moi khi nguoi dung chon "Edit"
+ *        nham voi mot value chua ton tai.
+ *      - Lam ro y nghia nghiep vu (Add vs Edit) trong menu.
+ * ---------------------------------------------------------------------- */
+static void EditRegistryValue(HKEY hive, const wchar_t* subKey,
+    const wchar_t* valueName, const wchar_t* newData)
 {
-    HKEY hKey;
-    LONG rc = RegOpenKeyExA(hive, subKey, 0, KEY_SET_VALUE, &hKey);
-    if (rc != ERROR_SUCCESS) {
-        PrintErr("Mo key", rc);
-        return 1;
+    HKEY hKey = NULL;
+    LONG result;
+
+    /* Buoc 1: Mo key voi quyen QUERY (kiem tra ton tai) + SET_VALUE (ghi) */
+    result = RegOpenKeyExW(
+        hive,
+        subKey,
+        0,
+        KEY_QUERY_VALUE | KEY_SET_VALUE,
+        &hKey);
+
+    if (result != ERROR_SUCCESS)
+    {
+        PrintWinError(L"Khong mo duoc Registry Key (Edit)", result);
+        return;
     }
 
-    rc = RegDeleteValueA(hKey, valueName);
+    /* Kiem tra value da ton tai hay chua truoc khi cho phep "sua" */
+    result = RegQueryValueExW(hKey, valueName, NULL, NULL, NULL, NULL);
+    if (result != ERROR_SUCCESS)
+    {
+        wprintf(L"[LOI] Value \"%ls\" khong ton tai. Vui long dung chuc nang Add truoc.\n", valueName);
+        RegCloseKey(hKey);
+        return;
+    }
+
+    /* Buoc 2: Cap nhat du lieu bang RegSetValueExW */
+    DWORD dataSize = (DWORD)((wcslen(newData) + 1) * sizeof(wchar_t));
+
+    result = RegSetValueExW(
+        hKey,
+        valueName,
+        0,
+        REG_SZ,
+        (const BYTE*)newData,
+        dataSize);
+
+    /* Buoc 3: In ket qua */
+    if (result == ERROR_SUCCESS)
+    {
+        wprintf(L"[OK] Da cap nhat Value \"%ls\" thanh \"%ls\" thanh cong.\n", valueName, newData);
+    }
+    else
+    {
+        PrintWinError(L"Cap nhat Value that bai", result);
+    }
+
+    /* Buoc 4: Dong handle */
     RegCloseKey(hKey);
-
-    if (rc != ERROR_SUCCESS) {
-        PrintErr("Xoa gia tri", rc);
-        return 1;
-    }
-
-    printf("[OK] Da xoa gia tri \"%s\" trong key \"%s\"\n", valueName, subKey);
-    return 0;
 }
 
-/* ---------- LIST (tien ich them): liet ke cac gia tri trong 1 key ---------- */
-static int CmdListValues(HKEY hive, const char* subKey)
+/* ----------------------------------------------------------------------
+ *  DeleteRegistryValue
+ *  Luong:
+ *      1. RegOpenKeyExW mo subkey voi quyen KEY_SET_VALUE (du de xoa value).
+ *      2. RegDeleteValueW xoa value theo ten.
+ *      3. In ket qua.
+ *      4. RegCloseKey.
+ * ---------------------------------------------------------------------- */
+static void DeleteRegistryValue(HKEY hive, const wchar_t* subKey, const wchar_t* valueName)
 {
-    HKEY hKey;
-    LONG rc = RegOpenKeyExA(hive, subKey, 0, KEY_QUERY_VALUE, &hKey);
-    if (rc != ERROR_SUCCESS) {
-        PrintErr("Mo key", rc);
-        return 1;
+    HKEY hKey = NULL;
+    LONG result;
+
+    /* Buoc 1: Mo Registry Key */
+    result = RegOpenKeyExW(
+        hive,
+        subKey,
+        0,
+        KEY_SET_VALUE,      /* KEY_SET_VALUE bao gom quyen xoa value */
+        &hKey);
+
+    if (result != ERROR_SUCCESS)
+    {
+        PrintWinError(L"Khong mo duoc Registry Key (Delete)", result);
+        return;
     }
 
-    printf("Danh sach gia tri trong \"%s\":\n", subKey);
-    char name[16384];
-    BYTE data[16384];
-    DWORD index = 0;
+    /* Buoc 2: Xoa value theo ten */
+    result = RegDeleteValueW(hKey, valueName);
 
-    for (;;) {
-        DWORD nameLen = sizeof(name);
-        DWORD dataLen = sizeof(data);
-        DWORD type;
-        rc = RegEnumValueA(hKey, index, name, &nameLen, NULL, &type, data, &dataLen);
-        if (rc == ERROR_NO_MORE_ITEMS) break;
-        if (rc != ERROR_SUCCESS) { PrintErr("Doc gia tri", rc); break; }
-
-        const char* typeName = "UNKNOWN";
-        char valueBuf[512] = "";
-        switch (type) {
-        case REG_SZ:
-        case REG_EXPAND_SZ:
-            typeName = (type == REG_SZ) ? "REG_SZ" : "REG_EXPAND_SZ";
-            snprintf(valueBuf, sizeof(valueBuf), "%s", (char*)data);
-            break;
-        case REG_DWORD:
-            typeName = "REG_DWORD";
-            snprintf(valueBuf, sizeof(valueBuf), "%lu", *(DWORD*)data);
-            break;
-        case REG_BINARY:
-            typeName = "REG_BINARY";
-            snprintf(valueBuf, sizeof(valueBuf), "(%lu bytes)", dataLen);
-            break;
-        }
-        printf("  %-20s %-14s %s\n", name[0] ? name : "(Default)", typeName, valueBuf);
-        index++;
+    /* Buoc 3: In ket qua */
+    if (result == ERROR_SUCCESS)
+    {
+        wprintf(L"[OK] Da xoa Value \"%ls\" thanh cong.\n", valueName);
+    }
+    else
+    {
+        PrintWinError(L"Xoa Value that bai", result);
     }
 
+    /* Buoc 4: Dong handle */
     RegCloseKey(hKey);
+}
+
+/* ----------------------------------------------------------------------
+ *  Ham phu tro nhap chuoi tu ban phim an toan (gioi han buffer,
+ *  loai bo ky tu newline con sot lai).
+ * ---------------------------------------------------------------------- */
+static void ReadLineW(const wchar_t* prompt, wchar_t* buffer, size_t bufferCount)
+{
+    wprintf(L"%ls", prompt);
+    if (fgetws(buffer, (int)bufferCount, stdin) != NULL)
+    {
+        size_t len = wcslen(buffer);
+        /* Xoa ky tu xuong dong (\n) neu co */
+        if (len > 0 && buffer[len - 1] == L'\n')
+        {
+            buffer[len - 1] = L'\0';
+        }
+    }
+    else
+    {
+        buffer[0] = L'\0';
+    }
+}
+
+/* ----------------------------------------------------------------------
+ *  Ham thu thap thong tin chung: Hive, SubKey, Value Name
+ *  (dung chung cho ca 3 chuc nang Add/Edit/Delete).
+ *  Tra ve FALSE neu Hive nhap khong hop le.
+ * ---------------------------------------------------------------------- */
+static BOOL CollectCommonInput(HKEY* outHive, wchar_t* subKey, size_t subKeySize,
+    wchar_t* valueName, size_t valueNameSize)
+{
+    wchar_t hiveText[64];
+
+    ReadLineW(L"Nhap Hive (HKCU, HKLM, HKCR, HKU, HKCC): ", hiveText, ARRAYSIZE(hiveText));
+
+    if (!ResolveHive(hiveText, outHive))
+    {
+        wprintf(L"[LOI] Hive khong hop le: \"%ls\"\n", hiveText);
+        return FALSE;
+    }
+
+    ReadLineW(L"Nhap SubKey (vd: Software\\\\MyApp): ", subKey, subKeySize);
+    ReadLineW(L"Nhap Value Name: ", valueName, valueNameSize);
+
+    return TRUE;
+}
+
+/* ----------------------------------------------------------------------
+ *  3 ham "handler" duoi day duoc tach rieng khoi wmain().
+ *  Ly do: neu khai bao cac buffer subKey/valueName/valueData truc tiep
+ *  trong tung nhanh "case" cua switch trong wmain, trinh bien dich co
+ *  the cong don kich thuoc stack cua CA 3 nhanh vao chung 1 stack frame
+ *  cua wmain (vi cung 1 ham) -> sinh canh bao C6262 (stack usage lon).
+ *  Tach thanh ham rieng giup moi handler co stack frame doc lap, chi
+ *  ton tai trong luc no dang chay, giam tong kich thuoc stack toi da.
+ * ---------------------------------------------------------------------- */
+static void HandleAddOperation(void)
+{
+    HKEY hive;
+    wchar_t subKey[512];
+    wchar_t valueName[256];
+    wchar_t valueData[1024];
+
+    if (CollectCommonInput(&hive, subKey, ARRAYSIZE(subKey), valueName, ARRAYSIZE(valueName)))
+    {
+        ReadLineW(L"Nhap Value Data: ", valueData, ARRAYSIZE(valueData));
+        AddRegistryValue(hive, subKey, valueName, valueData);
+    }
+}
+
+static void HandleEditOperation(void)
+{
+    HKEY hive;
+    wchar_t subKey[512];
+    wchar_t valueName[256];
+    wchar_t valueData[1024];
+
+    if (CollectCommonInput(&hive, subKey, ARRAYSIZE(subKey), valueName, ARRAYSIZE(valueName)))
+    {
+        ReadLineW(L"Nhap Value Data moi: ", valueData, ARRAYSIZE(valueData));
+        EditRegistryValue(hive, subKey, valueName, valueData);
+    }
+}
+
+static void HandleDeleteOperation(void)
+{
+    HKEY hive;
+    wchar_t subKey[512];
+    wchar_t valueName[256];
+
+    if (CollectCommonInput(&hive, subKey, ARRAYSIZE(subKey), valueName, ARRAYSIZE(valueName)))
+    {
+        DeleteRegistryValue(hive, subKey, valueName);
+    }
+}
+
+/* ----------------------------------------------------------------------
+ *  ShowMenu
+ *  Hien thi menu chinh va dieu huong den chuc nang tuong ung.
+ * ---------------------------------------------------------------------- */
+static void ShowMenu(void)
+{
+    wprintf(L"\n=========================\n");
+    wprintf(L"   Registry Editor CLI\n");
+    wprintf(L"=========================\n");
+    wprintf(L"1. Add Value\n");
+    wprintf(L"2. Edit Value\n");
+    wprintf(L"3. Delete Value\n");
+    wprintf(L"0. Exit\n");
+    wprintf(L"=========================\n");
+    wprintf(L"Lua chon: ");
+}
+
+/* ----------------------------------------------------------------------
+ *  wmain: diem vao chuong trinh (Unicode entry point)
+ * ---------------------------------------------------------------------- */
+int wmain(void)
+{
+    wchar_t choiceLine[16];
+    int choice;
+    BOOL running = TRUE;
+
+    /* Dat locale de wprintf/fgetws xu ly Unicode tot hon tren console */
+    _wsetlocale(LC_ALL, L"");
+
+    while (running)
+    {
+        ShowMenu();
+        ReadLineW(L"", choiceLine, ARRAYSIZE(choiceLine));
+        choice = _wtoi(choiceLine);
+
+        switch (choice)
+        {
+        case 1: /* Add Value */
+            HandleAddOperation();
+            break;
+
+        case 2: /* Edit Value */
+            HandleEditOperation();
+            break;
+
+        case 3: /* Delete Value */
+            HandleDeleteOperation();
+            break;
+
+        case 0: /* Exit */
+            wprintf(L"Thoat chuong trinh.\n");
+            running = FALSE;
+            break;
+
+        default:
+            wprintf(L"[LOI] Lua chon khong hop le, vui long thu lai.\n");
+            break;
+        }
+    }
+
     return 0;
-}
-
-static void PrintUsage(const char* prog)
-{
-    printf("Registry Editor CLI - Bai tap 3.1\n\n");
-    printf("Cach dung:\n");
-    printf("  %s add    <HIVE> <SubKey> <ValueName> <Type> <Data>\n", prog);
-    printf("  %s edit   <HIVE> <SubKey> <ValueName> <Type> <Data>\n", prog);
-    printf("  %s delete <HIVE> <SubKey> <ValueName>\n", prog);
-    printf("  %s list   <HIVE> <SubKey>\n\n", prog);
-    printf("HIVE  : HKCU | HKLM | HKCR | HKU | HKCC\n");
-    printf("Type  : REG_SZ | REG_EXPAND_SZ | REG_DWORD | REG_BINARY\n\n");
-    printf("Vi du:\n");
-    printf("  %s add HKCU \"Software\\MyApp\" Version REG_SZ \"1.0.0\"\n", prog);
-    printf("  %s edit HKCU \"Software\\MyApp\" Version REG_SZ \"1.1.0\"\n", prog);
-    printf("  %s delete HKCU \"Software\\MyApp\" Version\n", prog);
-    printf("  %s list HKCU \"Software\\MyApp\"\n", prog);
-}
-
-int main(int argc, char* argv[])
-{
-    if (argc < 2) {
-        PrintUsage(argv[0]);
-        return 1;
-    }
-
-    const char* cmd = argv[1];
-
-    if (_stricmp(cmd, "add") == 0 || _stricmp(cmd, "edit") == 0) {
-        if (argc != 7) {
-            fprintf(stderr, "[LOI] Thieu tham so.\n");
-            PrintUsage(argv[0]);
-            return 1;
-        }
-        HKEY hive;
-        if (!ParseHive(argv[2], &hive)) {
-            fprintf(stderr, "[LOI] HIVE khong hop le: %s\n", argv[2]);
-            return 1;
-        }
-        const char* action = (_stricmp(cmd, "add") == 0) ? "them" : "sua";
-        return CmdSetValue(action, hive, argv[3], argv[4], argv[5], argv[6]);
-    }
-    else if (_stricmp(cmd, "delete") == 0) {
-        if (argc != 5) {
-            fprintf(stderr, "[LOI] Thieu tham so.\n");
-            PrintUsage(argv[0]);
-            return 1;
-        }
-        HKEY hive;
-        if (!ParseHive(argv[2], &hive)) {
-            fprintf(stderr, "[LOI] HIVE khong hop le: %s\n", argv[2]);
-            return 1;
-        }
-        return CmdDeleteValue(hive, argv[3], argv[4]);
-    }
-    else if (_stricmp(cmd, "list") == 0) {
-        if (argc != 4) {
-            fprintf(stderr, "[LOI] Thieu tham so.\n");
-            PrintUsage(argv[0]);
-            return 1;
-        }
-        HKEY hive;
-        if (!ParseHive(argv[2], &hive)) {
-            fprintf(stderr, "[LOI] HIVE khong hop le: %s\n", argv[2]);
-            return 1;
-        }
-        return CmdListValues(hive, argv[3]);
-    }
-    else {
-        fprintf(stderr, "[LOI] Lenh khong hop le: %s\n", cmd);
-        PrintUsage(argv[0]);
-        return 1;
-    }
 }
