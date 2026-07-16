@@ -1,4 +1,5 @@
 /*
+* 
  * ============================================================================
  *  RegistryEditorCLI.c
  *  Bai tap 3.1 - Registry Editor CLI
@@ -13,18 +14,8 @@
  *
  *  Bien dich (Visual Studio x64 - Developer Command Prompt):
  *      cl /W4 /utf-8 RegistryEditorCLI.c Advapi32.lib
- *
- *  Hoac dung CMakeLists / MSBuild, chi can link Advapi32.lib
- *  (thu vien nay thuong duoc link mac dinh trong VS, nhung khai bao
- *   tuong minh bang #pragma comment de chac chan bien dich duoc).
- * ============================================================================
+ * 
  */
-
- /* Chi define UNICODE/_UNICODE neu project (VS) CHUA tu dinh nghia san.
-  * Ly do: khi project duoc set "Character Set = Unicode" trong
-  * Project Properties, Visual Studio da tu dong truyen
-  * /D UNICODE /D _UNICODE qua command line bien dich. Neu code
-  * #define lai lan nua se sinh canh bao C4005 (macro redefinition). */
 #ifndef UNICODE
 #define UNICODE
 #endif
