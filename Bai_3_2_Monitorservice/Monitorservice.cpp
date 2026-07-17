@@ -3,27 +3,6 @@
 // Bai tap 3.2 (mo rong) - Windows Service tu tao (CreateService) chay nen,
 // ghi log hieu nang CPU / RAM / DISK moi 1 phut, tu dong restart khi bi kill,
 // xoay vong log khi vuot 1MB hoac qua 5 ngay.
-//
-// Build (Visual Studio Developer Command Prompt):
-//   cl /EHsc MonitorService.cpp advapi32.lib Pdh.lib
-//
-// Build (MinGW-w64):
-//   g++ -o MonitorService.exe MonitorService.cpp -ladvapi32 -lpdh
-//
-// Cai dat service (chay voi quyen Administrator, dung duong dan TUYET DOI
-// toi file .exe da build, ly tuong la dat san trong thu muc co dinh, vi du
-// C:\SysMonService\MonitorService.exe):
-//   MonitorService.exe --install
-//
-// Go bo service:
-//   MonitorService.exe --uninstall
-//
-// Sau khi cai dat, dieu khien service nhu binh thuong:
-//   sc start SysMonService
-//   sc stop  SysMonService
-//   (hoac dung ServiceController.exe start/stop SysMonService)
-//
-// File log: C:\ProgramData\SysMonService\perf.log
 // ============================================================================
 
 #include <windows.h>
@@ -374,3 +353,8 @@ int wmain(int argc, wchar_t* argv[]) {
     }
     return 0;
 }
+
+// sc start SysMonService
+// sc stop SysMonService
+// sc query SysMonService
+// powershell: Get-Content "C:\ProgramData\SysMonService\perf.log" -Wait
