@@ -1,2 +1,3 @@
 ﻿  WriteFile.cpp
+D:\Work\NCS\exercise\Training\SystemProgramming\WriteFile.cpp(21,24): warning C4267: 'initializing': conversion from 'size_t' to 'DWORD', possible loss of data
   SystemProgramming.vcxproj -> D:\Work\NCS\exercise\Training\x64\Debug\SystemProgramming.exe
