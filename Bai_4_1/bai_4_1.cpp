@@ -1142,3 +1142,4 @@ int wmain(int argc, wchar_t* argv[])
     // du ham return o bat ky nhanh nao ben tren.
     return 0;
 }
+// C:\Windows\System32\notepad.exe
