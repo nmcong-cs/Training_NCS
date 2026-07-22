@@ -1,4 +1,4 @@
-#include<Windows.h>
+﻿#include<Windows.h>
 #include<iostream>
 
 using namespace std;
@@ -42,4 +42,19 @@ int main() {
 /*
 	startupinfo: dau vao CreateProcess
 	process_information: dau ra CreateProcess
+
+	Khởi tạo STARTUPINFO (si)
+		↓
+	Khởi tạo PROCESS_INFORMATION (pi)
+		↓
+	CreateProcess()
+		↓
+	Process được tạo
+		↓
+	WaitForSingleObject(pi.hProcess, INFINITE)
+		↓
+	(Đợi process kết thúc)
+		↓
+	CloseHandle(pi.hThread)
+	CloseHandle(pi.hProcess)
 */
