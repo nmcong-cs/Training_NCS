@@ -1,2 +1,4 @@
-﻿  CreateSymbolicLink.cpp
+﻿  CreateProcess.cpp
+D:\Work\NCS\exercise\Training\SystemProgramming\CreateProcess.cpp(8,9): warning C4101: 'hThread': unreferenced local variable
+D:\Work\NCS\exercise\Training\SystemProgramming\CreateProcess.cpp(7,9): warning C4101: 'hProcess': unreferenced local variable
   SystemProgramming.vcxproj -> D:\Work\NCS\exercise\Training\x64\Debug\SystemProgramming.exe

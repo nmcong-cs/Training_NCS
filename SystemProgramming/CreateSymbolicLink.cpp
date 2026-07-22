@@ -5,8 +5,9 @@ using namespace std;
 
 int main() {
 	bool symLink = CreateSymbolicLink(
-		L"D:\\Work\\NCS\\CheckAns\\khe.txt",
-		L"D:\\Work\\NCS\\CheckAns\\ThuHuong.txt",
+		L"D:\\Work\\NCS\\CheckAns\\khedangiu",
+		L"D:\\Work\\NCS\\CheckAns\\thuhuongdangiu",
+		SYMBOLIC_LINK_FLAG_DIRECTORY |
 		SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
 	);
 	if (symLink == FALSE) {

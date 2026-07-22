@@ -39,5 +39,8 @@
     <ClCompile Include="CreateSymbolicLink.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
+    <ClCompile Include="CreateProcess.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
