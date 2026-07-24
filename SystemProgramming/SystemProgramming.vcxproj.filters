@@ -48,5 +48,8 @@
     <ClCompile Include="CreateMutex.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
+    <ClCompile Include="ThreadSynchronization.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
